@@ -1,0 +1,22 @@
+AVATARES DE LLAMAS — coloca aquí los PNG recortados con ESTOS nombres exactos
+(la app los carga desde /static/img/). Si falta alguno, se muestra un emoji.
+
+Nombre de archivo requerido           Dónde aparece
+------------------------------------  -------------------------------------------
+3_Listening Llama.png                 Barra superior (junto a "English A1")
+2_Grammar Guru.png                    Sección "Aprende" (profesor) y Unidad 2
+1_Word Explorer.png                   Sección "Vocabulario" y Unidad 1
+9_Quiz Master.png                     Sección "Practica" (junto al título)
+12_Idiom Investigator.png             Cabecera del modal "Gestión de usuarios"
+
+Avatares por unidad (tarjeta de la ruta):
+1_Word Explorer.png                   Unidad 1
+2_Grammar Guru.png                    Unidad 2
+10_Daily Streak.png                   Unidad 3
+15_Culture Connector.png              Unidad 4
+20_Happy Llama.png                    Unidad 5
+4_Speaking Star.png                   Unidad 6
+16_Test Taker.png                     Unidad 7
+19_Goal Getter.png                    Unidad 8
+
+Formato: PNG, preferiblemente cuadrado (p. ej. 256x256), fondo transparente.

@@ -1,0 +1,1424 @@
+<!DOCTYPE html>
+<!--
+  dashboard.html — "English A1 · Academia interactiva"
+  SPA en JavaScript nativo, estilo Duolingo:
+    - Ruta de 8 unidades con progreso, XP y racha.
+    - Lecciones: el profesor explica en español, audio (TTS) con repetición,
+      flashcards de vocabulario y ejercicios interactivos (elección, traducción,
+      escucha y habla con reconocimiento de voz).
+    - Tarjetas de repaso y recordatorio de meta diaria.
+    - Gestión de usuarios (solo admin).
+-->
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Inglés te LLAMA</title>
+<script src="tailwind.js"></script>
+<script src="content.js"></script>
+<script>
+  // Capacitor bridge stub — on web/WebView this is a no-op; falls back to Web Speech API.
+  // Community TTS/Speech plugins removed for VoltBuilder compatibility (Java 17 constraint).
+  // Web Speech API works natively on Android WebView.
+  if (typeof Capacitor === 'undefined') {
+    window.Capacitor = { isNativePlatform: () => false, Plugins: {} };
+  }
+</script>
+<script src="offline.js"></script>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0b0c10">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<script>
+  // Estrategia de modo oscuro por CLASE (.dark en <html>).
+  tailwind.config = { darkMode: 'class' };
+  // Aplica el tema guardado ANTES de pintar para evitar parpadeo.
+  // Temas: 'light' | 'dark'
+  (function(){
+    try{
+      let t = localStorage.getItem('theme');
+      if(!t) t = 'dark'; // arranca en oscuro por defecto
+      const h = document.documentElement;
+      if(t === 'dark'){ h.classList.add('dark'); }
+      else if(t === 'premium'){ h.classList.add('dark'); } // legacy
+    }catch(e){}
+  })();
+</script>
+<style>
+  /* Fondo noche profundo (modo oscuro estándar) */
+  html.dark body { background-color:#0a0a0a; color:#f0ead0; }
+
+  /* === MODO OSCURO: negro + dorado (#D4AF37) === */
+  html.dark header { background-color:rgba(10,10,10,.95) !important; border-color:#2a2200 !important; }
+  html.dark .bg-white,
+  html.dark .dark\:bg-\[\#1a2233\],
+  html.dark .dark\:bg-\[\#121826\] { background-color:#111 !important; }
+  html.dark .border-slate-200,
+  html.dark .dark\:border-slate-700,
+  html.dark .dark\:border-slate-600 { border-color:#2e2600 !important; }
+  html.dark .text-slate-500,
+  html.dark .dark\:text-slate-400  { color:#9a8a6a !important; }
+  html.dark .text-slate-900,
+  html.dark .dark\:text-slate-100  { color:#f0ead0 !important; }
+  html.dark .bg-slate-100,
+  html.dark .dark\:bg-slate-700,
+  html.dark .dark\:bg-slate-800   { background-color:#1a1500 !important; }
+  /* Acentos dorados en botones primarios */
+  html.dark #player-next           { background:linear-gradient(90deg,#b8960c,#D4AF37) !important; color:#111 !important; }
+  html.dark .u-prog                { background:linear-gradient(90deg,#b8960c,#D4AF37) !important; }
+  html.dark .u-chip                { background-color:#1a1500 !important; border:1px solid #D4AF37 !important; color:#D4AF37 !important; }
+  /* Botón de tema y avatar */
+  html.dark #theme-toggle          { background:#1a1500 !important; border:1px solid #D4AF37 !important; color:#D4AF37 !important; }
+
+
+  /* Variables doradas para el Paywall */
+  :root { --gold:#f5c84b; --gold-soft:rgba(245,200,75,.40); }
+
+  /* ===================== Avatares de llama ===================== */
+  .llama { filter: drop-shadow(0 4px 6px rgba(0,0,0,.25)); }
+  /* En modo Oscuro: leve tono dorado + halo y sombra para alto contraste */
+
+  /* Animaciones suaves para una sensación moderna */
+  .pop { animation: pop .18s ease-out; }
+  @keyframes pop { 0%{transform:scale(.96)} 100%{transform:scale(1)} }
+  .slide { animation: slide .25s ease-out; }
+  @keyframes slide { 0%{opacity:0; transform:translateY(8px)} 100%{opacity:1; transform:translateY(0)} }
+  .flip-card { perspective: 1000px; }
+  .flip-inner { transition: transform .5s; transform-style: preserve-3d; position:relative; }
+  .flip-card.flipped .flip-inner { transform: rotateY(180deg); }
+  .flip-face { backface-visibility: hidden; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; }
+  .flip-back { transform: rotateY(180deg); }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800 dark:bg-[#121826] dark:text-slate-100 min-h-screen transition-colors">
+
+<!-- ===================== MODAL: PAYWALL ===================== -->
+<div id="paywall-modal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+  <div class="bg-[#0b0c10] rounded-3xl shadow-2xl w-full max-w-sm text-center overflow-hidden"
+       style="border:1px solid rgba(245,200,75,.5)">
+    <!-- Header dorado -->
+    <div class="px-6 pt-7 pb-4">
+      <div class="flex justify-center mb-3">
+        <img src="static/img/16.Test%20taker.png" alt="Test Taker"
+             class="w-36 h-36 object-contain"
+             style="filter:drop-shadow(0 0 12px rgba(245,200,75,.60))"
+             onerror="this.style.opacity=0">
+      </div>
+      <h2 class="text-2xl font-extrabold mb-1" style="color:#f5c84b">¡Versión de prueba completada!</h2>
+      <p class="text-slate-300 text-sm leading-relaxed">Has completado las primeras <strong class="text-white">6 unidades gratuitas</strong>. Con un único pago de 4,99 € desbloqueas todas las unidades (7 a 12) de golpe, para siempre.</p>
+    </div>
+
+    <!-- Precio -->
+    <div class="mx-5 mb-4 rounded-2xl py-4 px-4" style="background:#15161b; border:1px solid rgba(245,200,75,.3)">
+      <p class="text-xs text-slate-400 uppercase tracking-widest mb-1">Curso completo</p>
+      <p class="text-4xl font-extrabold" style="color:#f5c84b">4,99 €</p>
+      <p class="text-xs text-slate-400 mt-1">Pago único · Sin suscripción · Unidades 7 a 12</p>
+    </div>
+
+    <!-- Lo que incluye -->
+    <ul class="text-left mx-6 mb-5 space-y-1 text-sm text-slate-200">
+      <li class="flex gap-2"><span style="color:#f5c84b">✓</span> 6 unidades avanzadas (U7–U12)</li>
+      <li class="flex gap-2"><span style="color:#f5c84b">✓</span> +300 palabras de vocabulario</li>
+      <li class="flex gap-2"><span style="color:#f5c84b">✓</span> 108 ejercicios del Quiz Master</li>
+      <li class="flex gap-2"><span style="color:#f5c84b">✓</span> Acceso de por vida en tu dispositivo</li>
+    </ul>
+
+    <!-- Botón de compra simulado -->
+    <div class="px-5 pb-5 space-y-3">
+      <button id="paywall-buy"
+              class="w-full rounded-2xl py-3.5 font-extrabold text-lg text-black transition hover:brightness-110"
+              style="background:linear-gradient(90deg,#caa24a,#f5c84b)">
+        🔒 Desbloquear todo por 4,99 € (pago único)
+      </button>
+      <button id="paywall-close"
+              class="w-full rounded-2xl py-2.5 font-semibold text-sm text-slate-400 hover:text-slate-200 transition">
+        Seguir con las unidades gratuitas
+      </button>
+    </div>
+
+    <p class="text-xs text-slate-500 pb-4">
+      ℹ️ <em>Modo demostración — el pago es simulado y desbloquea localmente.</em>
+    </p>
+  </div>
+</div>
+
+<!-- Configuración inyectada por el servidor -->
+<script>
+  const IS_ADMIN = false;
+  const USERNAME = "Tú";
+</script>
+
+<!-- ===================== BARRA SUPERIOR ===================== -->
+<header class="sticky top-0 z-30 bg-white/90 dark:bg-[#1a2233]/90 backdrop-blur border-b border-slate-200 dark:border-slate-700 transition-colors">
+  <div class="max-w-4xl mx-auto px-4 py-3 flex items-center gap-3">
+    <button id="brand" class="flex items-center gap-2 font-extrabold text-indigo-700 dark:text-indigo-300 text-lg">
+      <img src="/static/img/3.istening%20Llama.png" alt="" class="llama w-16 h-16 rounded-full object-cover" onerror="this.style.opacity=0">
+      Inglés te LLAMA
+    </button>
+    <div class="flex-1"></div>
+    <div class="flex items-center gap-3 text-sm font-bold">
+      <span class="flex items-center gap-1 text-orange-500" title="Racha de días">🔥 <span id="stat-streak">0</span></span>
+      <span class="flex items-center gap-1 text-amber-500" title="Puntos de experiencia">⭐ <span id="stat-xp">0</span></span>
+    </div>
+    <button id="theme-toggle" title="Cambiar tema (Claro / Oscuro)"
+      class="flex items-center gap-2 rounded-full bg-slate-100 dark:bg-slate-700 px-3 h-9 text-sm font-semibold hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors">
+      <span id="theme-icon">🌞</span><span id="theme-label" class="hidden sm:inline">Claro</span>
+    </button>
+</div>
+</header>
+
+<main class="max-w-2xl mx-auto px-4 py-6">
+
+  <!-- ===================== VISTA: RUTA (una sola columna) ===================== -->
+  <div id="home-wrap" class="space-y-5">
+    <!-- Recordatorio de meta diaria -->
+    <div id="daily-banner" class="rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white p-5 shadow-lg flex items-center gap-4">
+      <div class="text-3xl">📅</div>
+      <div class="flex-1">
+        <p class="font-bold" id="daily-title">Tu meta de hoy</p>
+        <p class="text-indigo-100 text-sm" id="daily-text">Completa 1 lección para mantener tu racha. ¡5 minutos bastan!</p>
+      </div>
+      <img src="/static/img/10.Daily%20Streak.png" alt="" class="llama w-32 h-32 object-contain flex-none -my-4" onerror="this.style.opacity=0">
+    </div>
+
+    <section id="view-home"></section>
+
+
+    <!-- Tarjetas de repaso siempre visibles -->
+    <div id="review-widget" class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#111] p-4 shadow-sm">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-extrabold text-slate-900 dark:text-[#D4AF37]">🃏 Tarjetas de repaso (vocabulario y pronunciación)</h3>
+        <div class="flex gap-2">
+          <button id="rw-audio" class="rounded-lg bg-slate-100 dark:bg-[#1a1500] hover:opacity-80 px-2 py-1 text-sm">🔊</button>
+          <button id="rw-next"  class="rounded-lg bg-slate-100 dark:bg-[#1a1500] hover:opacity-80 px-2 py-1 text-sm font-bold">Siguiente →</button>
+        </div>
+      </div>
+      <!-- Flashcard inline (no modal) -->
+      <div id="rw-card" class="flip-card w-full h-36 cursor-pointer rounded-2xl" onclick="this.classList.toggle('flipped')">
+        <div class="flip-inner w-full h-full">
+          <div class="flip-face rounded-2xl bg-slate-50 dark:bg-[#1a1500] border border-slate-200 dark:border-[#2e2600] flex items-center justify-center p-4">
+            <span id="rw-front" class="text-xl font-extrabold text-slate-800 dark:text-[#D4AF37]">Cargando…</span>
+          </div>
+          <div class="flip-face flip-back rounded-2xl bg-slate-800 dark:bg-[#0a0a0a] border border-slate-700 dark:border-[#2e2600] flex items-center justify-center p-4">
+            <span id="rw-back" class="text-xl font-extrabold text-white dark:text-[#f0ead0]">—</span>
+          </div>
+        </div>
+      </div>
+      <p class="text-xs text-slate-400 text-center mt-2">Toca la tarjeta para ver la traducción</p>
+    </div>
+  </div><!-- /home-wrap -->
+
+  <!-- ===================== VISTA: DETALLE DE UNIDAD ===================== -->
+  <section id="view-unit" class="hidden"></section>
+
+</main>
+
+<!-- ===================== REPRODUCTOR DE LECCIÓN (overlay) ===================== -->
+<div id="player" class="hidden fixed inset-0 z-40 bg-white dark:bg-[#121826] flex flex-col">
+  <!-- cabecera del reproductor -->
+  <div class="border-b border-slate-200 dark:border-slate-700 px-4 py-3 flex items-center gap-3">
+    <button id="player-close" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-2xl leading-none">✕</button>
+    <div class="flex-1 h-3 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+      <div id="player-bar" class="h-full u-prog bg-emerald-500 transition-all" style="width:0%"></div>
+    </div>
+    <span class="text-rose-500 font-bold text-sm" id="player-hearts">❤️ 5</span>
+  </div>
+  <!-- cuerpo dinámico -->
+  <div id="player-body" class="flex-1 overflow-y-auto px-4 py-6"></div>
+  <!-- pie con botón continuar -->
+  <div class="border-t border-slate-200 dark:border-slate-700 px-4 py-4">
+    <div class="max-w-xl mx-auto">
+      <div id="player-feedback" class="hidden mb-3 rounded-xl px-4 py-3 text-sm"></div>
+      <button id="player-next" class="w-full rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 transition disabled:opacity-40">Continuar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MODAL: USUARIOS ===================== -->
+<div id="users-modal" class="hidden fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+  <div class="bg-white dark:bg-[#1a2233] rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div class="flex items-center justify-between px-5 py-4 border-b dark:border-slate-700">
+      <h3 class="font-bold text-lg flex items-center gap-2">
+        <span class="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center overflow-hidden">
+          <img src="/static/img/12.Idiom%20Investigator.png" alt="" class="llama w-full h-full object-cover" onerror="this.style.opacity=0">
+        </span>
+        Gestión de usuarios
+      </h3>
+      <button id="users-close" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-2xl">✕</button>
+    </div>
+    <div class="p-5">
+      <div class="grid sm:grid-cols-4 gap-3 items-end mb-3">
+        <input id="nu-username" placeholder="usuario" class="rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-800 px-3 py-2 text-sm" />
+        <input id="nu-password" type="password" placeholder="contraseña (6+)" class="rounded-lg border border-slate-300 dark:border-slate-600 dark:bg-slate-800 px-3 py-2 text-sm" />
+        <label class="flex items-center gap-2 text-sm"><input id="nu-admin" type="checkbox" /> Admin</label>
+        <button id="nu-create" class="rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 text-sm font-semibold">Crear</button>
+      </div>
+      <div id="nu-msg" class="hidden mb-3 text-sm rounded-lg px-3 py-2"></div>
+      <table class="w-full text-sm text-left">
+        <thead class="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 uppercase text-xs">
+          <tr><th class="px-3 py-2">ID</th><th class="px-3 py-2">Usuario</th><th class="px-3 py-2">Rol</th><th class="px-3 py-2 text-right">Acción</th></tr>
+        </thead>
+        <tbody id="users-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MODAL: REPASO ===================== -->
+<div id="review-modal" class="hidden fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+  <div class="bg-white dark:bg-[#1a2233] rounded-2xl shadow-2xl w-full max-w-md p-6 text-center">
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-bold text-lg">🃏 Tarjeta de repaso</h3>
+      <button id="review-close" class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-2xl">✕</button>
+    </div>
+    <div id="review-card" class="flip-card mx-auto h-44 w-full cursor-pointer mb-4">
+      <div class="flip-inner h-full w-full">
+        <div class="flip-face rounded-2xl bg-indigo-50 dark:bg-indigo-900/40 border-2 border-indigo-200 dark:border-indigo-700 text-2xl font-bold text-indigo-700 dark:text-indigo-200 p-4"></div>
+        <div class="flip-face flip-back rounded-2xl bg-emerald-50 dark:bg-emerald-900/40 border-2 border-emerald-200 dark:border-emerald-700 text-2xl font-bold text-emerald-700 dark:text-emerald-200 p-4"></div>
+      </div>
+    </div>
+    <p class="text-xs text-slate-400 mb-4">Toca la tarjeta para girarla · 🔊 para escuchar</p>
+    <div class="flex gap-2">
+      <button id="review-audio" class="flex-1 rounded-xl bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 py-2 font-semibold">🔊 Escuchar</button>
+      <button id="review-next" class="flex-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white py-2 font-semibold">Siguiente →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ===========================================================================
+//  PAYWALL — Unidades 1-6 gratis; 7-12 requieren compra (4,99 €)
+// ===========================================================================
+const FREE_UNITS = 6;
+const PURCHASE_KEY = "ela1_purchased";
+
+function isPurchased() {
+  try { return localStorage.getItem(PURCHASE_KEY) === "1"; } catch(e) { return false; }
+}
+function setPurchased() {
+  try { localStorage.setItem(PURCHASE_KEY, "1"); } catch(e) {}
+}
+
+// ===========================================================================
+//  ESTADO GLOBAL
+// ===========================================================================
+let UNITS = [];                 // resumen de unidades
+let PROGRESS = { xp:0, streak:0, lastActive:null, completed:{} };
+const PHASES = [
+  { id:"teach",   label:"Aprende",     icon:"📖" },
+  { id:"vocab",   label:"Vocabulario", icon:"🗂️" },
+  { id:"practice",label:"Practica",    icon:"🎮" },
+  { id:"rules",   label:"Reglas",      icon:"📚" },
+];
+
+// Mapa de colores (clases completas para que Tailwind las genere).
+const COLOR = {
+  indigo:{bg:"bg-indigo-500",ring:"ring-indigo-200",text:"text-indigo-600",soft:"bg-indigo-50",border:"border-indigo-200",grad:"from-indigo-500 to-indigo-700"},
+  emerald:{bg:"bg-emerald-500",ring:"ring-emerald-200",text:"text-emerald-600",soft:"bg-emerald-50",border:"border-emerald-200",grad:"from-emerald-500 to-emerald-700"},
+  amber:{bg:"bg-amber-500",ring:"ring-amber-200",text:"text-amber-600",soft:"bg-amber-50",border:"border-amber-200",grad:"from-amber-500 to-amber-700"},
+  sky:{bg:"bg-sky-500",ring:"ring-sky-200",text:"text-sky-600",soft:"bg-sky-50",border:"border-sky-200",grad:"from-sky-500 to-sky-700"},
+  rose:{bg:"bg-rose-500",ring:"ring-rose-200",text:"text-rose-600",soft:"bg-rose-50",border:"border-rose-200",grad:"from-rose-500 to-rose-700"},
+  violet:{bg:"bg-violet-500",ring:"ring-violet-200",text:"text-violet-600",soft:"bg-violet-50",border:"border-violet-200",grad:"from-violet-500 to-violet-700"},
+  orange:{bg:"bg-orange-500",ring:"ring-orange-200",text:"text-orange-600",soft:"bg-orange-50",border:"border-orange-200",grad:"from-orange-500 to-orange-700"},
+  teal:{bg:"bg-teal-500",ring:"ring-teal-200",text:"text-teal-600",soft:"bg-teal-50",border:"border-teal-200",grad:"from-teal-500 to-teal-700"},
+};
+
+function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;");}
+const $ = id => document.getElementById(id);
+
+// ===========================================================================
+//  AVATARES (llamas) — con fallback automático a emoji si la imagen no existe
+// ===========================================================================
+const AVATAR_BASE = "/static/img/";
+// Nombres EXACTOS tal como están guardados en static/img/
+const UNIT_AVATAR = {
+  1:"1.Word explorer.png", 2:"2. Grammas guru.png", 3:"10.Daily Streak.png",
+  4:"15.Culture Connector.png", 5:"20.Happy Llama.png", 6:"4.speaking star.png",
+  7:"16.Test taker.png", 8:"19.Goal Getter.png",
+  9:"11.Vocabulary Voyager.png", 10:"20.Happy Llama.png",
+  11:"2. Grammas guru.png", 12:"13.Phrasal verb pilot.png",
+};
+// <img> de llama con sombra premium. Carga directa (sin emoji); si falla, se atenúa.
+function avatar(file, imgClass){
+  const src = AVATAR_BASE + encodeURIComponent(file);
+  return `<img src="${src}" alt="" class="llama ${imgClass||''}" onerror="this.style.opacity=0">`;
+}
+
+// ===========================================================================
+//  AUDIO — Capacitor TTS (native Android) + Web Speech API (browser fallback)
+// ===========================================================================
+let lastSpoken = "";
+let AUDIO_RATE = 1.0;
+try { const r = parseFloat(localStorage.getItem("audioRate")); if (r) AUDIO_RATE = r; } catch(e) {}
+
+function setRate(v) {
+  AUDIO_RATE = parseFloat(v) || 1.0;
+  try { localStorage.setItem("audioRate", String(AUDIO_RATE)); } catch(e) {}
+  document.querySelectorAll(".rate-sel").forEach(s => { s.value = String(AUDIO_RATE); });
+}
+
+// --- Capacitor TTS (Samsung / Android native) --------------------------------
+const CapTTS = () => Capacitor.isNativePlatform() && Capacitor.Plugins && Capacitor.Plugins.TextToSpeech;
+
+function speakNative(text) {
+  try {
+    Capacitor.Plugins.TextToSpeech.speak({
+      text: text,
+      lang: "en-US",
+      rate: AUDIO_RATE,
+      pitch: 1.0,
+      volume: 1.0,
+      category: "ambient",
+    });
+  } catch(e) { speakWeb(text); }
+}
+
+// --- Web Speech API (browser fallback) --------------------------------------
+// ===========================================================================
+//  PERMISOS Y AUDIO — Cordova WebView (VoltBuilder APK)
+//  Usa cordova-plugin-speechrecognition para el micrófono nativo.
+//  speechSynthesis se desbloquea en el primer gesto del usuario.
+// ===========================================================================
+let _audioUnlocked = false;
+let _micGranted    = false;
+
+// Desbloquea speechSynthesis y AudioContext en el primer gesto
+function unlockAudio() {
+  if (_audioUnlocked) return;
+  _audioUnlocked = true;
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (ctx.state === "suspended") ctx.resume();
+  } catch(e) {}
+  // Utterance silencioso para inicializar el motor TTS
+  if ("speechSynthesis" in window) {
+    const s = new SpeechSynthesisUtterance(" ");
+    s.volume = 0; s.lang = "en-US";
+    speechSynthesis.speak(s);
+    speechSynthesis.onvoiceschanged = pickVoice;
+  }
+}
+["touchstart","mousedown","click"].forEach(evt =>
+  document.addEventListener(evt, function h(){ unlockAudio(); document.removeEventListener(evt,h); }, {once:true})
+);
+
+// Solicitar permiso de micrófono via Cordova plugin (nativo) o getUserMedia (web)
+async function ensureMicPermission() {
+  if (_micGranted) return true;
+  // Cordova plugin: cordova-plugin-speechrecognition
+  if (window.SpeechRecognition && window.SpeechRecognition.requestPermission) {
+    return new Promise(res => {
+      window.SpeechRecognition.requestPermission(
+        () => { _micGranted = true; res(true); },
+        () => { res(false); }
+      );
+    });
+  }
+  // Fallback: getUserMedia dispara el cartel nativo de Android
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+    s.getTracks().forEach(t => t.stop());
+    _micGranted = true;
+    return true;
+  } catch(e) { return false; }
+}
+
+function pickVoice() {
+  const vs = speechSynthesis.getVoices();
+  return vs.find(v => /en[-_]US/i.test(v.lang)) || vs.find(v => /^en/i.test(v.lang)) || null;
+}
+
+function speakWeb(text) {
+  if (!("speechSynthesis" in window) || !text) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "en-US"; u.rate = AUDIO_RATE; u.volume = 1; u.pitch = 1;
+  const v = pickVoice(); if (v) u.voice = v;
+  let started = false;
+  u.onstart = () => { started = true; };
+  u.onerror = () => { if (!started) setTimeout(() => speechSynthesis.speak(u), 350); };
+  speechSynthesis.speak(u);
+}
+if ("speechSynthesis" in window) { speechSynthesis.onvoiceschanged = pickVoice; }
+
+// --- Unified speak() --------------------------------------------------------
+function speak(text) {
+  if (!text) return;
+  lastSpoken = text;
+  unlockAudio();
+  speakWeb(text);
+}
+function repeatAudio() { if (lastSpoken) speak(lastSpoken); }
+
+// ===========================================================================
+//  RECONOCIMIENTO DE VOZ
+//  Intenta cordova-plugin-speechrecognition primero, luego Web Speech API
+// ===========================================================================
+function dictate(input) {
+  input.value = ""; input.placeholder = "Solicitando micrófono…";
+  ensureMicPermission().then(granted => {
+    if (!granted) {
+      input.placeholder = "Permiso denegado. Escribe la respuesta.";
+      return;
+    }
+    // Cordova plugin
+    if (window.SpeechRecognition && window.SpeechRecognition.startListening) {
+      window.SpeechRecognition.startListening(
+        result => {
+          input.value = Array.isArray(result.matches) ? result.matches[0] || "" : result;
+          if (!input.value) input.placeholder = "No se captó audio; escribe la respuesta.";
+        },
+        () => { input.placeholder = "No se captó audio; escribe la respuesta."; },
+        { language: "en-US", matches: 1, showPopup: false }
+      );
+      input.placeholder = "🎙️ Escuchando…";
+      return;
+    }
+    // Web Speech fallback
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { input.placeholder = "Voz no disponible; escribe la respuesta."; return; }
+    const rec = new SR();
+    rec.lang = "en-US"; rec.interimResults = false; rec.maxAlternatives = 1;
+    input.placeholder = "🎙️ Escuchando…";
+    try { rec.start(); } catch(e) { input.placeholder = "Error al iniciar micrófono."; return; }
+    rec.onresult = e => { input.value = e.results[0][0].transcript; };
+    rec.onerror  = err => {
+      input.placeholder = err.error === "not-allowed"
+        ? "Permiso denegado. Ve a Ajustes → Permisos → Micrófono."
+        : "No se captó audio; escribe la respuesta.";
+    };
+    rec.onend = () => { if (!input.value) input.placeholder = "Escribe o dicta tu respuesta en inglés…"; };
+  });
+}
+
+// Botón de audio + selector de velocidad (aparece junto a cada audio)
+function audioBtn(text){
+  const safe = esc(text).replace(/'/g,"\\'");
+  const sel = (r,l)=>`<option value="${r}" ${AUDIO_RATE===r?"selected":""}>${l}</option>`;
+  return `<span class="inline-flex items-center gap-1">
+    <button onclick="speak('${safe}')" class="rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 px-2 py-1 text-sm">🔊</button>
+    <button onclick="repeatAudio()" title="Repetir" class="rounded-lg bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 px-2 py-1 text-sm">🔁</button>
+    <select onchange="setRate(this.value)" title="Velocidad del audio"
+      class="rate-sel rounded-lg bg-slate-100 dark:bg-slate-700 text-xs px-1 py-1 border border-slate-200 dark:border-slate-600">
+      ${sel(0.75,"0.75x")}${sel(1.0,"1.0x")}${sel(1.25,"1.25x")}
+    </select>
+  </span>`;
+}
+
+// ===========================================================================
+//  CARGA INICIAL
+// ===========================================================================
+async function boot(){
+  const [u, p] = await Promise.all([
+    fetch("/api/units").then(r=>r.json()),
+    fetch("/api/progress").then(r=>r.json()),
+  ]);
+  UNITS = u; PROGRESS = Object.assign({xp:0,streak:0,lastActive:null,completed:{}}, p);
+  refreshStats();
+  renderHome();
+  if(typeof updateExamBtn==='function') updateExamBtn();
+  if(typeof loadReviewDeck==='function') loadReviewDeck();
+}
+
+function refreshStats(){
+  $("stat-xp").textContent = PROGRESS.xp;
+  $("stat-streak").textContent = PROGRESS.streak;
+}
+
+function unitProgress(n){
+  const done = (PROGRESS.completed[n] || []).length;
+  return Math.round((done / PHASES.length) * 100);
+}
+
+async function saveProgress(){
+  refreshStats();
+  try{
+    await fetch("/api/progress",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(PROGRESS)});
+  }catch(e){ /* offline: el progreso seguirá en memoria */ }
+}
+
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function bumpStreak(){
+  const today = todayStr();
+  if(PROGRESS.lastActive === today) return;
+  const y = new Date(Date.now()-86400000).toISOString().slice(0,10);
+  PROGRESS.streak = (PROGRESS.lastActive === y) ? PROGRESS.streak + 1 : 1;
+  PROGRESS.lastActive = today;
+}
+
+// ===========================================================================
+//  VISTA: RUTA DE UNIDADES (HOME)
+// ===========================================================================
+function showHome(){ $("view-unit").classList.add("hidden"); $("home-wrap").classList.remove("hidden"); window.scrollTo({top:0}); }
+function highlightActive(n){
+  UNITS.forEach(u=>{
+    const el = $("ucard-"+u.number);
+    if(el){ el.classList.toggle("ring-2", u.number===n); el.classList.toggle("ring-amber-400", u.number===n); }
+  });
+}
+function renderHome(){
+  showHome();
+  const purchased = isPurchased();
+  const cards = UNITS.map((u)=>{
+    const c = COLOR[u.color] || COLOR.indigo;
+    const pct = unitProgress(u.number);
+    const locked = u.number > FREE_UNITS && !purchased;
+    const lockBadge = locked
+      ? `<div class="flex-none text-center ml-1">
+           <div class="text-2xl" style="color:#D4AF37">🔒</div>
+           <div class="text-xs font-extrabold" style="color:#D4AF37">PRO</div>
+         </div>`
+      : `<div class="flex-none text-right pr-1">
+           <div class="text-lg font-extrabold ${c.text}">${pct}%</div>
+           <div class="text-xs text-slate-400">${pct===100?'¡Completa!':'Continuar'}</div>
+         </div>`;
+    return `
+    <button id="ucard-${u.number}" onclick="openUnit(${u.number})"
+      class="slide relative text-left w-full rounded-2xl border ${locked ? 'border-amber-400 dark:border-amber-500' : c.border+' dark:border-slate-700'} bg-white dark:bg-[#1a2233] p-4 shadow-sm hover:shadow-md transition flex gap-3 items-center ${locked ? 'opacity-75' : ''}">
+      <div class="flex-none w-14 h-14 rounded-2xl ${locked ? 'bg-slate-400 dark:bg-slate-700' : c.bg} text-white text-2xl flex items-center justify-center shadow">${u.icon}</div>
+      <div class="flex-1 min-w-0">
+        <p class="text-[11px] font-bold ${locked ? 'text-amber-400' : c.text}">UNIDAD ${u.number}${locked ? ' · PRO' : ''}</p>
+        <h3 class="text-base font-extrabold text-slate-900 dark:text-slate-100 leading-tight truncate">${esc(u.title)}</h3>
+        <p class="text-xs text-slate-500 dark:text-slate-400 truncate">${esc(u.subtitle)}</p>
+        ${!locked ? `<div class="mt-2 h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+          <div class="h-full u-prog ${c.bg}" style="width:${pct}%"></div>
+        </div>` : `<div class="mt-2 text-xs font-bold" style="color:#D4AF37">🔒 Desbloquea por 4,99 €</div>`}
+      </div>
+      ${lockBadge}
+    </button>`;
+  }).join("");
+
+  const examUnlocked = isExamUnlocked();
+  const examCardHTML = `
+    <button onclick="generateA1Exam()"
+      class="slide text-left w-full rounded-2xl border ${examUnlocked ? 'border-amber-400 dark:border-amber-500' : 'border-slate-200 dark:border-slate-700'} bg-white dark:bg-[#1a2233] p-4 shadow-sm hover:shadow-md transition flex gap-3 items-center">
+      <div class="flex-none w-14 h-14 rounded-2xl ${examUnlocked ? 'bg-amber-400' : 'bg-slate-300 dark:bg-slate-700'} text-white text-2xl flex items-center justify-center shadow">✏️</div>
+      <div class="flex-1 min-w-0">
+        <p class="text-[11px] font-bold ${examUnlocked ? 'text-amber-500' : 'text-slate-400'}">EXAMEN FINAL · A1</p>
+        <h3 class="text-base font-extrabold text-slate-900 dark:text-slate-100 leading-tight">EXAMEN A1</h3>
+        <p class="text-xs text-slate-500 dark:text-slate-400">${examUnlocked ? 'Pon a prueba todo lo que aprendiste' : 'Completa las 12 unidades para desbloquear'}</p>
+        <div class="mt-2 h-2 bg-slate-100 dark:bg-slate-700 rounded-full overflow-hidden">
+          <div class="h-full bg-amber-400" style="width:${examUnlocked?100:0}%"></div>
+        </div>
+      </div>
+      <div class="flex-none pr-1 text-2xl">${examUnlocked ? '🏆' : '🔒'}</div>
+    </button>`;
+
+  $("view-home").innerHTML = `
+    <h2 class="text-2xl font-extrabold text-slate-900 dark:text-slate-100 mb-1">Tu ruta de aprendizaje</h2>
+    <p class="text-slate-500 dark:text-slate-400 mb-4">${UNITS.length} unidades, paso a paso. Toca una unidad para empezar.</p>
+    <div class="relative">
+      <div class="space-y-3">${cards}${examCardHTML}</div>
+      <!-- Una sola llama grande que se mete entre varias tarjetas (decorativa) -->
+      <img src="/static/img/20.Happy%20Llama.png" alt=""
+           class="llama absolute w-64 sm:w-80 object-contain pointer-events-none select-none z-10"
+           style="right:-1.25rem; bottom:-1rem;" onerror="this.style.opacity=0">
+    </div>`;
+}
+
+// ===========================================================================
+//  DETALLE DE UNIDAD (todo en la misma columna)
+// ===========================================================================
+let CURRENT = null;
+function showPaywall() {
+  $("paywall-modal").classList.remove("hidden");
+}
+async function openUnit(n){
+  // Bloquea unidades > FREE_UNITS si no se ha comprado.
+  if (n > FREE_UNITS && !isPurchased()) {
+    showPaywall();
+    return;
+  }
+  if(typeof loadUnitCards==='function') loadUnitCards(n);
+  const u = await fetch("/api/units/"+n).then(r=>r.json());
+  CURRENT = u;
+  const c = COLOR[u.color] || COLOR.indigo;
+  const done = PROGRESS.completed[n] || [];
+  const chk = id => done.includes(id) ? ' <span class="text-emerald-500 dark:text-emerald-400">✓</span>' : '';
+  const v0 = u.vocab[0] || {en:"Hello", es:"Hola"};
+  const objs = u.objectives.map(o=>`<li class="flex gap-2 items-start"><span class="text-white/90">✓</span><span>${esc(o)}</span></li>`).join("");
+
+  const row = (onclick, img, title, sub, cta) => `
+    <button onclick="${onclick}" class="w-full text-left rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#1a2233] p-4 flex items-center gap-3 hover:shadow transition">
+      <div class="flex-none w-12 h-12 rounded-full u-chip bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
+        <img src="/static/img/${encodeURIComponent(img)}" alt="" class="llama w-full h-full object-contain" onerror="this.style.opacity=0">
+      </div>
+      <div class="flex-1"><p class="font-bold text-slate-800 dark:text-slate-100">${title}</p><p class="text-xs text-slate-400">${sub}</p></div>
+      <span class="${c.text} font-bold whitespace-nowrap">${cta} →</span>
+    </button>`;
+
+  $("home-wrap").classList.add("hidden");
+  $("view-unit").classList.remove("hidden");
+  window.scrollTo({top:0});
+  $("view-unit").innerHTML = `
+   <div class="space-y-4 slide">
+    <div class="flex items-center justify-between gap-3">
+      <button onclick="renderHome()" class="text-slate-500 dark:text-slate-300 hover:text-slate-800 dark:hover:text-white font-semibold">← Volver a la ruta</button>
+      <span class="text-xs font-bold ${c.text} text-right">UNIDAD ${u.number} · ${esc(u.title)}</span>
+    </div>
+
+    <!-- 1) REGLAS GRAMATICALES (la base de la unidad: lo primero) -->
+    <div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#1a2233] p-4">
+      <h3 class="font-extrabold text-slate-900 dark:text-slate-100 mb-3 flex items-center gap-2">📖 Reglas gramaticales</h3>
+      <div class="grid sm:grid-cols-2 gap-3">${renderRulesHTML(u.grammar_rules, c)}</div>
+    </div>
+
+    <!-- 2) APRENDE (con vista previa de tarjeta) -->
+    <div class="rounded-2xl border ${c.border} dark:border-slate-700 bg-white dark:bg-[#1a2233] overflow-hidden">
+      <div class="flex items-center gap-3 p-4 border-b border-slate-100 dark:border-slate-700">
+        <div class="flex-none w-11 h-11 rounded-full u-chip bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
+          <img src="/static/img/2.%20Grammas%20guru.png" alt="" class="llama w-full h-full object-contain" onerror="this.style.opacity=0">
+        </div>
+        <div class="flex-1"><p class="font-extrabold text-slate-900 dark:text-slate-100">Aprende${chk('teach')}</p>
+          <p class="text-xs text-slate-400">El profesor te explica en español</p></div>
+      </div>
+      <div class="p-4 flex items-center gap-3">
+        <img src="/static/img/2.%20Grammas%20guru.png" alt="" class="llama w-32 h-32 object-contain flex-none hidden sm:block" onerror="this.style.opacity=0">
+        <div id="aprende-card" class="flex-1 rounded-2xl bg-slate-900 text-white p-6 text-center cursor-pointer min-h-[150px] flex flex-col justify-center">
+          <div id="ac-text" class="text-4xl font-extrabold ${c.text}">${esc(v0.en)}</div>
+          <p class="text-xs text-slate-300 mt-2">toca para ver la traducción</p>
+          <div class="mt-3 flex items-center justify-center gap-2">${audioBtn(v0.en)}</div>
+        </div>
+      </div>
+      <div class="px-4 pb-4">
+        <button onclick="startPhase('teach')" class="w-full rounded-xl ${c.bg} text-white font-bold py-2.5 hover:opacity-90 transition">${done.includes('teach')?'Repasar':'Empezar'} lección →</button>
+      </div>
+    </div>
+
+    <!-- 3) VOCABULARIO   4) PRACTICA -->
+    ${row("startPhase('vocab')", "1.Word explorer.png", "Vocabulario"+chk('vocab'), "Palabras clave con audio", done.includes('vocab')?'Repasar':'Empezar')}
+    ${row("startPhase('practice')", "9.Quiz Master.png", "Practica"+chk('practice'), "Ejercicios interactivos", done.includes('practice')?'Repasar':'Empezar')}
+   </div>`;
+
+  // Flashcard de "Aprende": al tocar (fuera de los botones) muestra la traducción.
+  const ac = $("aprende-card");
+  if(ac){
+    let flipped = false;
+    ac.addEventListener("click", e=>{
+      if(e.target.closest("button,select")) return;
+      flipped = !flipped;
+      $("ac-text").textContent = flipped ? v0.es : v0.en;
+    });
+  }
+}
+function phaseDesc(id){
+  return {teach:"El profesor te explica en español",vocab:"Palabras clave con audio",practice:"Ejercicios interactivos",rules:"Resumen de reglas gramaticales"}[id]||"";
+}
+
+// ===========================================================================
+//  REPRODUCTOR DE LECCIÓN
+// ===========================================================================
+let SESSION = null;  // {phase, steps, idx, hearts, correct, total}
+
+function startPhase(phase){
+  const u = CURRENT;
+  let steps = [];
+  if(phase==="teach")    steps = u.teach.map(t=>({kind:"teach",data:t}));
+  if(phase==="vocab")    steps = u.vocab.map(v=>({kind:"vocab",data:v}));
+  if(phase==="rules")    steps = [{kind:"rules",data:u.grammar_rules}];
+  if(phase==="practice") steps = u.exercises.map(e=>({kind:"ex",data:e}));
+  SESSION = { phase, steps, idx:0, hearts:5, correct:0, total: phase==="practice"?steps.length:0, answered:false };
+  $("player").classList.remove("hidden");
+  renderStep();
+}
+
+function closePlayer(){ $("player").classList.add("hidden"); speechSynthesis.cancel(); openUnit(CURRENT.number); }
+
+function setBar(){
+  const pct = Math.round((SESSION.idx / SESSION.steps.length) * 100);
+  $("player-bar").style.width = pct + "%";
+  $("player-hearts").textContent = SESSION.phase==="practice" ? ("❤️ " + SESSION.hearts) : "";
+}
+function hideFeedback(){ $("player-feedback").classList.add("hidden"); }
+function showFeedback(ok, html){
+  const f = $("player-feedback");
+  f.className = "mb-3 rounded-xl px-4 py-3 text-sm " + (ok ? "bg-emerald-50 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-200 border border-emerald-200 dark:border-emerald-700" : "bg-rose-50 dark:bg-rose-900/40 text-rose-800 dark:text-rose-200 border border-rose-200 dark:border-rose-700");
+  f.innerHTML = html; f.classList.remove("hidden");
+}
+
+// ===========================================================================
+//  RENDER ESTRUCTURADO DE REGLAS (tablas y cuadros comparativos)
+// ===========================================================================
+function ruleCardWrap(title, inner, c){
+  return `<div class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#1a2233] p-4 shadow-sm">
+    <h4 class="font-extrabold text-slate-800 dark:text-slate-100 mb-3 flex items-center gap-2">
+      <span class="w-2 h-5 rounded ${c.bg}"></span>${esc(title)}</h4>
+    ${inner}</div>`;
+}
+
+// Tabla vertical de conjugación del verbo To Be
+function conjugationTable(c){
+  const rows = [
+    ["I","am","yo soy/estoy"],["You","are","tú eres/estás"],["He / She / It","is","él/ella es/está"],
+    ["We","are","nosotros somos/estamos"],["You","are","ustedes son/están"],["They","are","ellos son/están"],
+  ];
+  const tr = rows.map(r=>`
+    <tr class="border-b border-slate-100 dark:border-slate-700">
+      <td class="px-3 py-2 font-semibold text-slate-700 dark:text-slate-200">${r[0]}</td>
+      <td class="px-3 py-2"><span class="font-mono font-bold ${c.text}">${r[1]}</span></td>
+      <td class="px-3 py-2 text-sm text-slate-500 dark:text-slate-400">${r[2]}</td>
+    </tr>`).join("");
+  return `<div class="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
+    <table class="w-full text-left">
+      <thead class="${c.soft} dark:bg-slate-800 text-xs uppercase ${c.text} dark:text-slate-300">
+        <tr><th class="px-3 py-2">Pronombre</th><th class="px-3 py-2">To Be</th><th class="px-3 py-2">Significado</th></tr>
+      </thead><tbody>${tr}</tbody></table></div>`;
+}
+
+// Cuadro comparativo de contracciones (forma completa vs contraída)
+function contractionsTable(){
+  const aff = [["I am","I'm"],["You are","You're"],["He is","He's"],["She is","She's"],["We are","We're"],["They are","They're"]];
+  const neg = [["is not","isn't"],["are not","aren't"]];
+  const col = (rows)=>rows.map(r=>`
+    <tr class="border-b border-slate-100 dark:border-slate-700">
+      <td class="px-3 py-2 text-slate-500 dark:text-slate-400 line-through">${r[0]}</td>
+      <td class="px-3 py-2 font-mono font-bold text-emerald-600 dark:text-emerald-400">${r[1]}</td>
+    </tr>`).join("");
+  const tbl = (titulo, rows, head)=>`
+    <div class="flex-1 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
+      <div class="px-3 py-2 text-xs font-bold uppercase ${head}">${titulo}</div>
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 dark:bg-slate-800 text-xs text-slate-400">
+          <tr><th class="px-3 py-1 text-left font-normal">Completa</th><th class="px-3 py-1 text-left font-normal">Contraída</th></tr>
+        </thead><tbody>${col(rows)}</tbody></table></div>`;
+  return `<div class="flex flex-col sm:flex-row gap-3">
+    ${tbl("Afirmativo", aff, "bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300")}
+    ${tbl("Negativo", neg, "bg-rose-50 dark:bg-rose-900/40 text-rose-600 dark:text-rose-300")}
+  </div>`;
+}
+
+// Esquema de fórmula con cajas de colores: [parte] + [parte] ...
+function formulaScheme(parts, example){
+  const palette = [
+    "bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-200 border-indigo-300 dark:border-indigo-700",
+    "bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-200 border-amber-300 dark:border-amber-700",
+    "bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-200 border-emerald-300 dark:border-emerald-700",
+    "bg-rose-100 dark:bg-rose-900/50 text-rose-700 dark:text-rose-200 border-rose-300 dark:border-rose-700",
+    "bg-sky-100 dark:bg-sky-900/50 text-sky-700 dark:text-sky-200 border-sky-300 dark:border-sky-700",
+  ];
+  const boxes = parts.map((p,i)=>`
+    <span class="rounded-lg border ${palette[i%palette.length]} px-3 py-2 font-bold text-sm whitespace-nowrap">${esc(p)}</span>
+    ${i<parts.length-1?'<span class="font-extrabold text-slate-400">+</span>':''}`).join("");
+  const ex = example ? `<div class="mt-3 flex items-center gap-2 text-sm">
+      <span class="text-slate-400">Ejemplo:</span>
+      <span class="font-mono font-semibold text-slate-700 dark:text-slate-200">${esc(example.en)}</span>
+      <span class="text-slate-400">— ${esc(example.es)}</span>${audioBtn(example.en)}</div>` : "";
+  return `<div class="flex flex-wrap items-center gap-2">${boxes}</div>${ex}`;
+}
+
+// Cuadrícula de transformaciones (parsea "a→b, c→d")
+function transformGrid(detalle){
+  const pairs = [];
+  detalle.split(/[;,]/).forEach(seg=>{
+    const m = seg.match(/([^→]+)→([^.]+)/);
+    if(m) pairs.push([m[1].trim(), m[2].trim()]);
+  });
+  if(!pairs.length) return `<p class="text-sm text-slate-600 dark:text-slate-300">${esc(detalle)}</p>`;
+  const chips = pairs.map(p=>`
+    <div class="flex items-center gap-2 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-3 py-2">
+      <span class="font-mono text-slate-500 dark:text-slate-400">${esc(p[0])}</span>
+      <span class="text-emerald-500">→</span>
+      <span class="font-mono font-bold text-emerald-600 dark:text-emerald-400">${esc(p[1])}</span>
+    </div>`).join("");
+  return `<div class="grid grid-cols-2 sm:grid-cols-3 gap-2">${chips}</div>`;
+}
+
+// Decide el componente según el título de la regla
+function renderRulesHTML(rules, c){
+  return rules.map(r=>{
+    const t = (r.titulo||"").toLowerCase();
+    if(/conjugaci/.test(t) && /be/.test(t))
+      return ruleCardWrap(r.titulo, conjugationTable(c), c);
+    if(/contracc/.test(t))
+      return ruleCardWrap(r.titulo, contractionsTable(), c);
+    if(/edad/.test(t))
+      return ruleCardWrap(r.titulo, formulaScheme(["Sujeto","to be (am/is/are)","número","years old"],
+        {en:"I am 20 years old.", es:"Tengo 20 años."}), c);
+    if(/origen/.test(t))
+      return ruleCardWrap(r.titulo, formulaScheme(["Sujeto","to be (am/is/are)","from","país"],
+        {en:"I am from Spain.", es:"Soy de España."}), c);
+    if(/→/.test(r.detalle))
+      return ruleCardWrap(r.titulo, transformGrid(r.detalle), c);
+    return ruleCardWrap(r.titulo, `<p class="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">${esc(r.detalle)}</p>`, c);
+  }).join("");
+}
+
+function renderStep(){
+  setBar(); hideFeedback();
+  SESSION.answered = false;
+  const next = $("player-next");
+  next.textContent = "Continuar";
+  const step = SESSION.steps[SESSION.idx];
+
+  if(!step){ return renderResults(); }
+
+  const c = COLOR[CURRENT.color] || COLOR.indigo;
+  const body = $("player-body");
+
+  if(step.kind==="teach"){
+    const t = step.data;
+    next.disabled = false;
+    const lines = t.lines.map(l=>`<p class="text-slate-600 dark:text-slate-300 leading-relaxed mb-2">${esc(l)}</p>`).join("");
+    const exs = t.examples.map(e=>`
+      <div class="flex items-center gap-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3">
+        <div class="flex-1">
+          <p class="font-bold text-slate-800 dark:text-slate-100">${esc(e.en)}</p>
+          <p class="text-sm text-slate-500 dark:text-slate-400">${esc(e.es)}</p>
+        </div>
+        ${audioBtn(e.en)}
+      </div>`).join("");
+    body.innerHTML = `
+      <div class="max-w-xl mx-auto slide">
+        <div class="flex items-center gap-3 mb-4">
+          <img src="/static/img/2.%20Grammas%20guru.png" alt="" class="llama w-36 h-36 object-contain flex-none" onerror="this.style.opacity=0">
+          <div>
+            <p class="text-xs font-bold ${c.text}">EL PROFESOR EXPLICA</p>
+            <h3 class="text-xl font-extrabold text-slate-900 dark:text-slate-100">${esc(t.title)}</h3>
+          </div>
+        </div>
+        ${lines}
+        <div class="my-4 rounded-2xl bg-gradient-to-br ${c.grad} text-white p-4 text-center font-bold text-lg">${esc(t.formula)}</div>
+        <p class="text-xs font-bold text-slate-400 mb-2">EJEMPLOS (toca 🔊 para oír)</p>
+        <div class="space-y-2">${exs}</div>
+      </div>`;
+  }
+
+  else if(step.kind==="vocab"){
+    const v = step.data;
+    next.disabled = false;
+    // Audio solo al pulsar el botón 🔊 — no autoplay
+    body.innerHTML = `
+      <div class="max-w-md mx-auto text-center slide">
+        <div class="w-40 h-40 mx-auto mb-2 flex items-center justify-center">
+          ${avatar("1.Word explorer.png", "w-full h-full object-contain")}
+        </div>
+        <p class="text-xs font-bold ${c.text} mb-4">VOCABULARIO ${SESSION.idx+1}/${SESSION.steps.length}</p>
+        <div id="vc" class="flip-card mx-auto h-52 w-full cursor-pointer" onclick="this.classList.toggle('flipped')">
+          <div class="flip-inner h-full w-full">
+            <div class="flip-face rounded-3xl ${c.soft} border-2 ${c.border} p-6">
+              <div><div class="text-3xl font-extrabold ${c.text}">${esc(v.en)}</div><p class="text-xs text-slate-400 mt-2">toca para ver la traducción</p></div>
+            </div>
+            <div class="flip-face flip-back rounded-3xl bg-slate-800 text-white p-6">
+              <div class="text-3xl font-extrabold">${esc(v.es)}</div>
+            </div>
+          </div>
+        </div>
+        <div class="mt-4 flex justify-center gap-2">${audioBtn(v.en)}</div>
+      </div>`;
+  }
+
+  else if(step.kind==="rules"){
+    next.disabled = false; next.textContent = "Terminar";
+    body.innerHTML = `
+      <div class="max-w-2xl mx-auto slide">
+        <div class="flex items-center gap-3 mb-4"><div class="text-3xl">📚</div>
+          <h3 class="text-xl font-extrabold">Reglas gramaticales</h3></div>
+        <div class="space-y-4">${renderRulesHTML(step.data, c)}</div>
+      </div>`;
+  }
+
+  else if(step.kind==="ex"){
+    renderExercise(step.data);
+  }
+}
+
+// --- Render de ejercicios ---------------------------------------------------
+function renderExercise(ex){
+  const c = COLOR[CURRENT.color] || COLOR.indigo;
+  const body = $("player-body");
+  const next = $("player-next");
+  next.disabled = true;
+
+  const header = `<div class="flex items-center gap-3 mb-2">
+      <img src="/static/img/9.Quiz%20Master.png" alt="" class="llama w-20 h-20 object-contain flex-none" onerror="this.style.opacity=0">
+      <p class="text-xs font-bold ${c.text}">EJERCICIO ${SESSION.idx+1}/${SESSION.steps.length}</p>
+    </div>`;
+
+  if(ex.type==="choice" || ex.type==="fill" || ex.type==="listen"){
+    const audio = ex.type==="listen" ? `<div class="flex justify-center gap-2 my-3">${audioBtn(ex.audio)}</div>` : "";
+    // Audio de escucha solo al pulsar 🔊 (eliminado autoplay)
+    const opts = ex.options.map((o,i)=>`
+      <button data-i="${i}" class="opt w-full rounded-xl border-2 border-slate-200 dark:border-slate-700 hover:border-slate-300 dark:hover:border-slate-600 bg-white dark:bg-[#1a2233] px-4 py-3 text-left font-semibold transition">${esc(o)}</button>`).join("");
+    body.innerHTML = `
+      <div class="max-w-xl mx-auto slide">
+        ${header}
+        <h3 class="text-xl font-extrabold text-slate-900 dark:text-slate-100 mb-3">${esc(ex.q)}</h3>
+        ${audio}
+        <div class="space-y-2">${opts}</div>
+      </div>`;
+    body.querySelectorAll(".opt").forEach(b=>{
+      b.addEventListener("click",()=>{
+        if(SESSION.answered) return;
+        const i = parseInt(b.dataset.i,10);
+        const ok = (i === ex.answer);
+        body.querySelectorAll(".opt").forEach(x=>x.disabled=true);
+        b.classList.add(ok?"border-emerald-500":"border-rose-500", ok?"bg-emerald-500/15":"bg-rose-500/15");
+        if(!ok) body.querySelectorAll(".opt")[ex.answer].classList.add("border-emerald-500","bg-emerald-500/15");
+        gradeAnswer(ok, ex.explain, ex.options[ex.answer]);
+      });
+    });
+  }
+
+  else if(ex.type==="translate" || ex.type==="speak"){
+    const isSpeak = ex.type==="speak";
+    const target = isSpeak ? ex.expected : ex.answer;
+    body.innerHTML = `
+      <div class="max-w-xl mx-auto slide">
+        ${header}
+        <p class="text-xs font-bold text-slate-400 mb-1">${isSpeak?'DÍLO EN VOZ ALTA':'TRADUCE AL INGLÉS'}</p>
+        <h3 class="text-xl font-extrabold text-slate-900 dark:text-slate-100 mb-3">${esc(ex.prompt)}</h3>
+        <div class="flex gap-2">
+          <input id="ex-input" type="text" placeholder="${isSpeak?'Pulsa 🎤 o escribe…':'Escribe en inglés…'}"
+            class="flex-1 rounded-xl border-2 border-slate-200 dark:border-slate-700 dark:bg-[#1a2233] px-4 py-3 focus:border-indigo-400 outline-none" />
+          <button id="ex-mic" class="rounded-xl bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 px-4 text-xl" title="Hablar">🎤</button>
+        </div>
+        <div class="mt-2">${audioBtn(target)}<span class="text-xs text-slate-400 ml-2">escucha la respuesta modelo</span></div>
+      </div>`;
+    const input = $("ex-input");
+    input.addEventListener("keydown",e=>{ if(e.key==="Enter") submitText(ex,target); });
+    $("ex-mic").addEventListener("click",()=>dictate(input));
+    // El botón "Continuar" actúa como "Comprobar" hasta responder.
+    next.disabled = false; next.textContent = "Comprobar";
+    next._mode = {kind:"text", ex, target};
+  }
+}
+
+async function submitText(ex, target){
+  if(SESSION.answered) return;
+  const val = ($("ex-input")||{}).value || "";
+  const res = await fetch("/api/check",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({answer:val, expected:target})}).then(r=>r.json());
+  gradeAnswer(res.correct, ex.explain, target);
+}
+
+// --- Calificación común -----------------------------------------------------
+function gradeAnswer(ok, explain, correctText){
+  SESSION.answered = true;
+  const next = $("player-next");
+  next._mode = null;
+  if(ok){
+    SESSION.correct++; PROGRESS.xp += 10; refreshStats();
+    speak(correctText);
+    showFeedback(true, `<b>¡Correcto! +10 XP</b> <span class="font-mono">${esc(correctText)}</span>`);
+  }else{
+    SESSION.hearts = Math.max(0, SESSION.hearts-1);
+    setBar();
+    showFeedback(false, `<b>Casi.</b> Respuesta: <span class="font-mono">${esc(correctText)}</span><br><span class="text-slate-600">💡 ${esc(explain||"")}</span>`);
+  }
+  next.disabled = false; next.textContent = "Continuar";
+}
+
+// --- Botón Continuar / Comprobar -------------------------------------------
+$("player-next").addEventListener("click", ()=>{
+  const next = $("player-next");
+  // Modo "Comprobar" en ejercicios de texto/voz
+  if(next._mode && next._mode.kind==="text" && !SESSION.answered){
+    return submitText(next._mode.ex, next._mode.target);
+  }
+  SESSION.idx++;
+  if(SESSION.idx >= SESSION.steps.length) return renderResults();
+  renderStep();
+});
+
+// --- Pantalla de resultados -------------------------------------------------
+function renderResults(){
+  setBar(); hideFeedback();
+  const c = COLOR[CURRENT.color] || COLOR.indigo;
+  // Marca la fase como completada y suma bonus + racha.
+  const n = CURRENT.number;
+  PROGRESS.completed[n] = PROGRESS.completed[n] || [];
+  if(!PROGRESS.completed[n].includes(SESSION.phase)){
+    PROGRESS.completed[n].push(SESSION.phase);
+    PROGRESS.xp += 20;  // bonus por completar la fase
+  }
+  bumpStreak();
+  saveProgress();
+
+  const isPractice = SESSION.phase==="practice";
+  const score = isPractice ? `${SESSION.correct}/${SESSION.steps.length}` : "✓";
+  $("player-body").innerHTML = `
+    <div class="max-w-md mx-auto text-center slide pt-8">
+      <div class="text-6xl mb-3">🎉</div>
+      <h3 class="text-2xl font-extrabold text-slate-900 dark:text-slate-100">¡Lección completada!</h3>
+      <p class="text-slate-500 dark:text-slate-400 mb-6">Buen trabajo, sigue así.</p>
+      <div class="grid grid-cols-2 gap-3">
+        <div class="rounded-2xl ${c.soft} dark:bg-slate-800 border ${c.border} dark:border-slate-700 p-4">
+          <div class="text-2xl font-extrabold ${c.text}">+${isPractice?(SESSION.correct*10+20):20} XP</div>
+          <div class="text-xs text-slate-500 dark:text-slate-400">Experiencia</div>
+        </div>
+        <div class="rounded-2xl bg-orange-50 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-700 p-4">
+          <div class="text-2xl font-extrabold text-orange-500">🔥 ${PROGRESS.streak}</div>
+          <div class="text-xs text-slate-500 dark:text-slate-400">Racha</div>
+        </div>
+        ${isPractice?`<div class="col-span-2 rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-4">
+          <div class="text-2xl font-extrabold text-slate-700 dark:text-slate-100">${score}</div>
+          <div class="text-xs text-slate-500 dark:text-slate-400">Aciertos</div></div>`:""}
+      </div>
+    </div>`;
+  const next = $("player-next");
+  next.disabled = false; next.textContent = "Volver a la unidad"; next._mode = null;
+  next.onclick = ()=>{ next.onclick=null; closePlayer(); };
+}
+
+// ===========================================================================
+//  MENÚ, REPASO Y USUARIOS
+// ===========================================================================
+$("brand").addEventListener("click", renderHome);
+
+// --- Paywall -----------------------------------------------------------------
+$("paywall-buy").addEventListener("click", () => {
+  setPurchased();
+  $("paywall-modal").classList.add("hidden");
+  // Recarga la ruta para que todas las tarjetas queden desbloqueadas.
+  renderHome();
+  // Pequeña celebración de compra.
+  setTimeout(() => alert("🎉 ¡Compra completada! Ahora tienes acceso completo a las unidades 7-12."), 200);
+});
+$("paywall-close").addEventListener("click", () => $("paywall-modal").classList.add("hidden"));
+
+// --- Selector de 2 modos: Claro / Oscuro (persistente) -----------
+const THEMES = ["light","dark"];
+const THEME_UI = {
+  light: { icon:"☀️", label:"Claro" },
+  dark:  { icon:"🌙", label:"Oscuro" },
+};
+function currentTheme(){
+  const h = document.documentElement;
+  if(h.classList.contains("dark")) return "dark";
+  return "light";
+}
+function applyTheme(t){
+  if(!t) t='dark';
+  const h = document.documentElement;
+  h.classList.remove("dark","premium");
+  if(t==="dark" || t==="premium") h.classList.add("dark");
+  const k = (t==="premium") ? "dark" : t;
+  try { localStorage.setItem("theme", k); } catch(e){}
+  $("theme-icon").textContent = THEME_UI[k].icon;
+  $("theme-label").textContent = THEME_UI[k].label;
+}
+function cycleTheme(){
+  const i = THEMES.indexOf(currentTheme());
+  applyTheme(THEMES[(i+1) % THEMES.length]);
+}
+$("theme-toggle").addEventListener("click", cycleTheme);
+applyTheme(currentTheme());
+
+$("player-close").addEventListener("click", closePlayer);
+
+// --- Tarjetas de repaso (todo el vocabulario de todas las unidades) --------
+let REVIEW = [], rIdx = 0;
+async function openReview(){
+  // Junta el vocabulario de las 8 unidades.
+  if(REVIEW.length===0){
+    for(const u of UNITS){
+      const full = await fetch("/api/units/"+u.number).then(r=>r.json());
+      full.vocab.forEach(v=>REVIEW.push(v));
+    }
+    REVIEW.sort(()=>Math.random()-0.5);
+  }
+  rIdx = 0; showReviewCard();
+  $("review-modal").classList.remove("hidden");
+}
+function showReviewCard(){
+  const v = REVIEW[rIdx % REVIEW.length];
+  const card = $("review-card");
+  card.classList.remove("flipped");
+  card.querySelector(".flip-face:not(.flip-back)").textContent = v.en;
+  card.querySelector(".flip-back").textContent = v.es;
+  // Sin autoplay — el audio solo suena al pulsar 🔊 o al girar la tarjeta
+}
+$("review-card").addEventListener("click", ()=> $("review-card").classList.toggle("flipped"));
+$("review-audio").addEventListener("click", ()=> speak(REVIEW[rIdx % REVIEW.length].en));
+$("review-next").addEventListener("click", ()=>{ rIdx++; showReviewCard(); });
+$("review-close").addEventListener("click", ()=> $("review-modal").classList.add("hidden"));
+if($("open-review")) $("open-review").addEventListener("click", openReview);
+
+// --- Gestión de usuarios ----------------------------------------------------
+async function loadUsers(){
+  const tb = $("users-tbody");
+  tb.innerHTML = `<tr><td class="px-3 py-3 text-slate-400" colspan="4">Cargando…</td></tr>`;
+  const res = await fetch("/api/users");
+  if(!res.ok){ tb.innerHTML = `<tr><td class="px-3 py-3 text-red-600" colspan="4">No autorizado.</td></tr>`; return; }
+  const users = await res.json();
+  tb.innerHTML = users.map(u=>`
+    <tr class="border-b border-slate-100">
+      <td class="px-3 py-2 text-slate-500">${u.id}</td>
+      <td class="px-3 py-2 font-semibold">${esc(u.username)}</td>
+      <td class="px-3 py-2">${u.is_admin?'<span class="rounded-full bg-indigo-100 text-indigo-700 px-2 py-0.5 text-xs font-semibold">Admin</span>':'<span class="text-slate-500 text-xs">Usuario</span>'}</td>
+      <td class="px-3 py-2 text-right"><button data-del="${u.id}" data-name="${esc(u.username)}" class="rounded-lg bg-red-50 hover:bg-red-100 text-red-600 px-3 py-1 text-xs font-semibold">Eliminar</button></td>
+    </tr>`).join("");
+  tb.querySelectorAll("[data-del]").forEach(b=>b.addEventListener("click",()=>delUser(b.dataset.del,b.dataset.name)));
+}
+async function createUser(){
+  const msg = $("nu-msg");
+  const res = await fetch("/api/users",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({username:$("nu-username").value.trim(),password:$("nu-password").value,is_admin:$("nu-admin").checked})});
+  const data = await res.json();
+  msg.classList.remove("hidden");
+  msg.className = "mb-3 text-sm rounded-lg px-3 py-2 " + (res.ok?"bg-green-50 text-green-800":"bg-amber-50 text-amber-800");
+  msg.textContent = res.ok ? data.message : data.error;
+  if(res.ok){ $("nu-username").value=""; $("nu-password").value=""; $("nu-admin").checked=false; loadUsers(); }
+}
+async function delUser(id,name){
+  if(!confirm(`¿Eliminar al usuario "${name}"?`)) return;
+  const res = await fetch("/api/users/"+id,{method:"DELETE"});
+  const data = await res.json();
+  if(!res.ok) alert(data.error||"No se pudo eliminar.");
+  loadUsers();
+}
+if(IS_ADMIN && $("open-users")){
+  $("open-users").addEventListener("click", ()=>{ $("users-modal").classList.remove("hidden"); loadUsers(); });
+  if($("open-users-left")) $("open-users-left").addEventListener("click", ()=>{ $("users-modal").classList.remove("hidden"); loadUsers(); });
+  $("users-close").addEventListener("click", ()=> $("users-modal").classList.add("hidden"));
+  $("nu-create").addEventListener("click", createUser);
+}
+
+// ===========================================================================
+//  EXAMEN A1 — desbloqueo y apariencia del botón
+// ===========================================================================
+function isExamUnlocked() {
+  // Requiere compra PRO Y 100% en las 12 unidades
+  if (!isPurchased()) return false;
+  if (!UNITS.length) return false;
+  return UNITS.every(u => unitProgress(u.number) === 100);
+}
+
+function updateExamBtn() {
+  const btn = $("open-exam");
+  if (!btn) return;
+  if (isExamUnlocked()) {
+    btn.className = "flex items-center justify-center gap-2 rounded-2xl border border-amber-400 bg-amber-400/10 dark:bg-amber-900/20 py-3 font-bold text-sm text-amber-500 dark:text-amber-300 hover:shadow transition";
+    btn.innerHTML = "📝 EXAMEN A1";
+  } else {
+    btn.className = "flex items-center justify-center gap-2 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-[#1a2233] py-3 font-bold text-sm text-slate-400 hover:shadow transition";
+    btn.innerHTML = "🔒 EXAMEN A1";
+  }
+}
+
+// ===========================================================================
+//  EXAMEN A1 INTERACTIVO — 30 preguntas al azar con input de texto + score
+// ===========================================================================
+const EXAM_FALLBACK = [
+  {q:"Traduce: 'Soy de España'",               a:"I am from Spain."},
+  {q:"Traduce: 'Tengo 25 años'",               a:"I am 25 years old."},
+  {q:"¿Cómo se pregunta 'de dónde eres'?",    a:"Where are you from?"},
+  {q:"Negativo de: 'She is happy'",            a:"She isn't happy."},
+  {q:"Traduce: 'Ellos no trabajan los lunes'", a:"They don't work on Mondays."},
+  {q:"Pasado de 'go':",                         a:"went"},
+  {q:"Traduce: 'Hay dos habitaciones'",         a:"There are two rooms."},
+  {q:"Plural irregular de 'child':",            a:"children"},
+  {q:"Traduce: 'Me gusta escuchar música'",    a:"I love listening to music."},
+  {q:"Comparativo de 'big':",                   a:"bigger"},
+  {q:"Traduce: 'Gira a la izquierda'",          a:"Turn left."},
+  {q:"¿Cómo se dice 'Me duele la cabeza'?",    a:"I have a headache."},
+  {q:"Presente continuo de 'run' (she):",      a:"She is running."},
+  {q:"Traduce: 'Voy a estudiar mañana'",        a:"I am going to study tomorrow."},
+  {q:"Traduce: 'Me gustaría visitar Londres'", a:"I would like to visit London."},
+  {q:"¿Cómo se dice 'No sé conducir'?",        a:"I can't drive."},
+  {q:"Adverbio de frecuencia más alto:",        a:"always"},
+  {q:"Traduce: 'El gato está debajo de la mesa'", a:"The cat is under the table."},
+  {q:"Comparativo de 'expensive':",             a:"more expensive"},
+  {q:"¿Cómo se dice 'Descansa'? (imperativo)", a:"Rest."},
+  {q:"Traduce: 'Ella estudia inglés'",          a:"She studies English."},
+  {q:"Negativo: 'He ___ know English' (doesn't/don't)", a:"doesn't"},
+  {q:"¿Cómo se dice '¿Cuánto cuesta?'",        a:"How much is it?"},
+  {q:"Traduce: 'Estábamos cansados'",           a:"We were tired."},
+  {q:"Pasado de 'have':",                        a:"had"},
+  {q:"Traduce: 'El banco está al lado de la farmacia'", a:"The bank is next to the pharmacy."},
+  {q:"Plural de 'woman':",                       a:"women"},
+  {q:"Traduce: 'Sigo recto'",                    a:"I go straight ahead."},
+  {q:"¿Cómo se dice 'Bebe agua'? (imperativo)", a:"Drink water."},
+  {q:"Traduce: 'No hay azúcar'",                 a:"There isn't any sugar."},
+];
+
+function normExam(t){
+  return (t||"").trim().toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .replace(/[^a-z0-9\s']/g," ").replace(/\s+/g," ").trim();
+}
+
+async function generateA1Exam() {
+  $("menu").classList.add("hidden");
+  if (!isExamUnlocked()) {
+    const prog = UNITS.filter(u=>u.number<=FREE_UNITS)
+      .map(u=>`U${u.number}:${unitProgress(u.number)}%`).join(" ");
+    alert("🔒 Completa las 6 unidades gratuitas al 100% para desbloquear el Examen A1.\n\n" + prog);
+    return;
+  }
+
+  // Construir banco de preguntas desde datos completos de cada unidad
+  let questions = [];
+  try {
+    for (const u of UNITS) {
+      const d = await fetch("/api/units/"+u.number).then(r=>r.json());
+      const vocab = d.vocab||[];
+      // 2 vocab por unidad
+      for (let i=0; i<Math.min(2,vocab.length); i++){
+        const v = vocab[Math.floor(Math.random()*vocab.length)];
+        questions.push({q:`¿Cómo se dice en inglés "${v.es}"?`, a:v.en});
+      }
+      // 1 ejercicio de traducción por unidad
+      const exs = (d.exercises||[]).filter(e=>e.type==="translate");
+      if (exs.length>0){
+        const ex = exs[Math.floor(Math.random()*exs.length)];
+        questions.push({q:ex.prompt, a:ex.answer});
+      }
+    }
+  } catch(e){ questions=[]; }
+
+  if (questions.length < 10) questions = [...EXAM_FALLBACK];
+  questions = questions.sort(()=>Math.random()-0.5).slice(0,30);
+
+  // ── UI: reutiliza review-modal ──────────────────────────────────
+  const modal   = $("review-modal");
+  const titleEl = modal.querySelector("h3");
+  const cardEl  = $("review-card");
+  const nextBtn = $("review-next");
+  const audioB  = $("review-audio");
+  const closeB  = $("review-close");
+
+  let examIdx = 0, score = 0;
+
+  function restoreModal(){
+    titleEl.textContent = "🃏 Tarjeta de repaso";
+    nextBtn.textContent = "Siguiente →";
+    nextBtn.onclick = null;
+    audioB.onclick = ()=>speak((REVIEW[rIdx%REVIEW.length]||{}).en||"");
+    closeB.onclick = ()=>modal.classList.add("hidden");
+    cardEl.onclick = null;
+  }
+
+  function renderQ(){
+    cardEl.classList.remove("flipped");
+    const q = questions[examIdx];
+    titleEl.innerHTML = `📝 EXAMEN A1 &nbsp;<span class="text-xs font-normal text-slate-400">${examIdx+1}/${questions.length}</span>`;
+    const front = cardEl.querySelector(".flip-face:not(.flip-back)");
+    const back  = cardEl.querySelector(".flip-back");
+    front.innerHTML = `<div class="w-full px-3 text-center">
+      <p class="text-xs font-bold text-amber-400 mb-2">PREGUNTA ${examIdx+1}</p>
+      <p class="text-base font-bold leading-snug mb-4">${esc(q.q)}</p>
+      <div class="flex gap-2 justify-center">
+        <input id="exam-in" type="text" placeholder="Escribe en inglés…"
+          class="flex-1 max-w-xs rounded-xl border-2 border-slate-300 dark:border-slate-600 dark:bg-slate-800 px-3 py-2 text-sm outline-none focus:border-amber-400" />
+        <button onclick="checkExamQ()" class="rounded-xl bg-amber-400 hover:bg-amber-500 text-black px-3 py-2 text-sm font-bold">✓</button>
+      </div>
+      <p id="exam-fb" class="mt-2 text-xs h-4"></p>
+    </div>`;
+    back.innerHTML = `<div class="text-center px-3">
+      <p class="text-xs font-bold text-emerald-400 mb-2">RESPUESTA CORRECTA</p>
+      <p class="text-lg font-extrabold">${esc(q.a)}</p>
+    </div>`;
+    cardEl.onclick = e=>{
+      if(e.target.closest("input,button")) return;
+      cardEl.classList.toggle("flipped");
+      if(cardEl.classList.contains("flipped")) speak(q.a);
+    };
+    nextBtn.textContent = "Comprobar →";
+    setTimeout(()=>{ const i=$("exam-in"); if(i) i.focus(); }, 100);
+  }
+
+  window.checkExamQ = function(){
+    const inp = $("exam-in");
+    if (!inp || inp.disabled) return;
+    inp.disabled = true;
+    const q = questions[examIdx];
+    const ok = normExam(inp.value) === normExam(q.a);
+    if (ok){ score++; }
+    const fb = $("exam-fb");
+    if(ok){
+      if(fb){ fb.textContent="✅ ¡Correcto!"; fb.className="mt-2 text-xs text-emerald-500 font-bold"; }
+      inp.classList.add("border-emerald-400");
+    } else {
+      if(fb){ fb.textContent="❌ Respuesta: "+q.a; fb.className="mt-2 text-xs text-rose-400 font-bold"; }
+      inp.classList.add("border-rose-400");
+    }
+    speak(q.a);
+    setTimeout(()=>cardEl.classList.add("flipped"), 400);
+    nextBtn.textContent = examIdx+1<questions.length ? "Siguiente →" : "Ver resultado";
+  };
+
+  nextBtn.onclick = function(){
+    if (!$("exam-in")?.disabled){ checkExamQ(); return; }
+    examIdx++;
+    if (examIdx >= questions.length){
+      restoreModal();
+      modal.classList.add("hidden");
+      const pct = Math.round(score/questions.length*100);
+      const msg = pct>=80?"🏆 ¡Nivel A1 dominado!":pct>=60?"👍 Bien, sigue practicando.":"📚 Repasa y vuelve a intentarlo.";
+      alert(`📝 EXAMEN A1 COMPLETADO\n\nResultado: ${score}/${questions.length} (${pct}%)\n\n${msg}`);
+      return;
+    }
+    renderQ();
+  };
+  audioB.onclick = ()=>speak(questions[examIdx]?.a||"");
+  closeB.onclick = ()=>{ restoreModal(); modal.classList.add("hidden"); };
+
+  renderQ();
+  modal.classList.remove("hidden");
+}
+
+
+// ===========================================================================
+//  TARJETAS DE REPASO — widget fijo en home (no modal)
+// ===========================================================================
+let RW_DECK = [], rwIdx = 0;
+
+async function loadReviewDeck() {
+  if (RW_DECK.length > 0) return;
+  try {
+    for (const u of UNITS) {
+      const d = await fetch("/api/units/" + u.number).then(r => r.json());
+      (d.vocab || []).forEach(v => RW_DECK.push(v));
+    }
+  } catch(e) {}
+  if (!RW_DECK.length) RW_DECK = [
+    {en:"Hello",es:"Hola"},{en:"Goodbye",es:"Adiós"},{en:"Thank you",es:"Gracias"},
+    {en:"Yes",es:"Sí"},{en:"No",es:"No"},{en:"Please",es:"Por favor"},
+  ];
+  RW_DECK.sort(() => Math.random() - 0.5);
+  showRwCard();
+}
+
+function showRwCard() {
+  const v = RW_DECK[rwIdx % RW_DECK.length];
+  const card = $("rw-card");
+  if (!card) return;
+  card.classList.remove("flipped");
+  $("rw-front").textContent = v.en;
+  $("rw-back").textContent  = v.es;
+  // Sin autoplay — el audio solo suena al pulsar 🔊
+}
+
+// Cuando se abre la vista de una unidad, carga sus tarjetas primero
+function loadUnitCards(unitNumber) {
+  fetch("/api/units/" + unitNumber).then(r => r.json()).then(d => {
+    const vocab = d.vocab || [];
+    if (vocab.length > 0) {
+      // Pone las tarjetas de esta unidad al frente del mazo
+      RW_DECK = [...vocab, ...RW_DECK.filter(v => !vocab.find(u => u.en === v.en))];
+      rwIdx = 0;
+      showRwCard();
+    }
+  }).catch(() => {});
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+  if ($("rw-next")) {
+    $("rw-next").addEventListener("click", () => {
+      rwIdx++;
+      showRwCard();
+    });
+  }
+  if ($("rw-audio")) {
+    $("rw-audio").addEventListener("click", () => {
+      const v = RW_DECK[rwIdx % RW_DECK.length];
+      if (v) speak(v.en);
+    });
+  }
+});
+
+// ===========================================================================
+boot();
+</script>
+</html>
