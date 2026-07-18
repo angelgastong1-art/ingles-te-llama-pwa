@@ -617,7 +617,7 @@ function renderHome(){
     <div class="relative">
       <div class="space-y-3">${cards}${examCardHTML}</div>
       <!-- Una sola llama grande que se mete entre varias tarjetas (decorativa) -->
-      <img src="/static/img/20.Happy%20Llama.png" alt=""
+      <img src="static/img/20.Happy%20Llama.png" alt=""
            class="llama absolute w-64 sm:w-80 object-contain pointer-events-none select-none z-10"
            style="right:-1.25rem; bottom:-1rem;" onerror="this.style.opacity=0">
     </div>`;
@@ -648,7 +648,7 @@ async function openUnit(n){
   const row = (onclick, img, title, sub, cta) => `
     <button onclick="${onclick}" class="w-full text-left rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-[#1a2233] p-4 flex items-center gap-3 hover:shadow transition">
       <div class="flex-none w-12 h-12 rounded-full u-chip bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
-        <img src="/static/img/${encodeURIComponent(img)}" alt="" class="llama w-full h-full object-contain" onerror="this.style.opacity=0">
+        <img src="static/img/${encodeURIComponent(img)}" alt="" class="llama w-full h-full object-contain" onerror="this.style.opacity=0">
       </div>
       <div class="flex-1"><p class="font-bold text-slate-800 dark:text-slate-100">${title}</p><p class="text-xs text-slate-400">${sub}</p></div>
       <span class="${c.text} font-bold whitespace-nowrap">${cta} →</span>
@@ -674,13 +674,13 @@ async function openUnit(n){
     <div class="rounded-2xl border ${c.border} dark:border-slate-700 bg-white dark:bg-[#1a2233] overflow-hidden">
       <div class="flex items-center gap-3 p-4 border-b border-slate-100 dark:border-slate-700">
         <div class="flex-none w-11 h-11 rounded-full u-chip bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
-          <img src="/static/img/2.%20Grammas%20guru.png" alt="" class="llama w-full h-full object-contain" onerror="this.style.opacity=0">
+          <img src="static/img/2.%20Grammas%20guru.png" alt="" class="llama w-full h-full object-contain" onerror="this.style.opacity=0">
         </div>
         <div class="flex-1"><p class="font-extrabold text-slate-900 dark:text-slate-100">Aprende${chk('teach')}</p>
           <p class="text-xs text-slate-400">El profesor te explica en español</p></div>
       </div>
       <div class="p-4 flex items-center gap-3">
-        <img src="/static/img/2.%20Grammas%20guru.png" alt="" class="llama w-32 h-32 object-contain flex-none hidden sm:block" onerror="this.style.opacity=0">
+        <img src="static/img/2.%20Grammas%20guru.png" alt="" class="llama w-32 h-32 object-contain flex-none hidden sm:block" onerror="this.style.opacity=0">
         <div id="aprende-card" class="flex-1 rounded-2xl bg-slate-900 text-white p-6 text-center cursor-pointer min-h-[150px] flex flex-col justify-center">
           <div id="ac-text" class="text-4xl font-extrabold ${c.text}">${esc(v0.en)}</div>
           <p class="text-xs text-slate-300 mt-2">toca para ver la traducción</p>
@@ -877,7 +877,7 @@ function renderStep(){
     body.innerHTML = `
       <div class="max-w-xl mx-auto slide">
         <div class="flex items-center gap-3 mb-4">
-          <img src="/static/img/2.%20Grammas%20guru.png" alt="" class="llama w-36 h-36 object-contain flex-none" onerror="this.style.opacity=0">
+          <img src="static/img/2.%20Grammas%20guru.png" alt="" class="llama w-36 h-36 object-contain flex-none" onerror="this.style.opacity=0">
           <div>
             <p class="text-xs font-bold ${c.text}">EL PROFESOR EXPLICA</p>
             <h3 class="text-xl font-extrabold text-slate-900 dark:text-slate-100">${esc(t.title)}</h3>
@@ -937,7 +937,7 @@ function renderExercise(ex){
   next.disabled = true;
 
   const header = `<div class="flex items-center gap-3 mb-2">
-      <img src="/static/img/9.Quiz%20Master.png" alt="" class="llama w-20 h-20 object-contain flex-none" onerror="this.style.opacity=0">
+      <img src="static/img/9.Quiz%20Master.png" alt="" class="llama w-20 h-20 object-contain flex-none" onerror="this.style.opacity=0">
       <p class="text-xs font-bold ${c.text}">EJERCICIO ${SESSION.idx+1}/${SESSION.steps.length}</p>
     </div>`;
 
